@@ -23,5 +23,18 @@ export MASTER_ADDR=$(hostname)
 export MASTER_PORT=29500
 export OMP_NUM_THREADS=1
 
+START_TIME=$(date +%s)
+echo "PyTorch Job Started at: $(date)"
+
 # Launch PyTorch DDP via torchrun for 4 local GPUs
-torchrun --nproc_per_node=4 --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT train_SEA_120km.py
+time torchrun --nproc_per_node=4 --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT train_SEA_120km.py
+
+END_TIME=$(date +%s)
+echo "PyTorch Job Ended at: $(date)"
+
+ELAPSED=$((END_TIME - START_TIME))
+HOURS=$((ELAPSED / 3600))
+MINUTES=$(((ELAPSED % 3600) / 60))
+SECONDS=$((ELAPSED % 60))
+
+echo "Total PyTorch Execution Time: ${HOURS}h ${MINUTES}m ${SECONDS}s"
