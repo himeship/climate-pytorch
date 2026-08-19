@@ -2,7 +2,7 @@
 #PBS -N pytorch_ddp_job
 #PBS -q normal
 #PBS -P 59001008
-#PBS -l select=1:ncpus=128:ngpus=2:mem=440G
+#PBS -l select=1:ncpus=128:ngpus=4:mem=440G
 #PBS -l walltime=04:00:00
 #PBS -j oe
 #PBS -o ddp_output.log
