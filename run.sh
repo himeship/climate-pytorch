@@ -23,5 +23,5 @@ export MASTER_ADDR=$(hostname)
 export MASTER_PORT=29500
 export OMP_NUM_THREADS=1
 
-# Launch PyTorch DDP via torchrun for 2 local GPUs
-torchrun --nproc_per_node=2 --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT train_SEA_120km.py
+# Launch PyTorch DDP via torchrun for 4 local GPUs
+torchrun --nproc_per_node=4 --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT train_SEA_120km.py
