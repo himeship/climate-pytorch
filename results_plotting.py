@@ -8,6 +8,8 @@ import cmaps
 import torch
 import socket
 import operator
+import glob
+import os
 
 import numpy as np
 import xarray as xr
@@ -188,16 +190,20 @@ with torch.no_grad():
 
 # In[ ]:
 
-
 dtype = gen_dtype
-real = torch.load('../SG_data/ccrs_project/test_ci_new/20210102013202_20210102013000.pt')
-real = torch.load('../SG_data/ccrs_project/test_ci_new/20221030143224_20221030143000.pt')
-# real = torch.load('../SG_data/ccrs_project/test_ci_new/20210101172203_20210101172000.pt')
-# real = torch.load('../SG_data/ccrs_project/test_ci_new/20220223163223_20220223163000.pt')
-real = torch.load('../SG_data/ccrs_project/test_ci_new/20210901203203_20210901203000.pt')
-# real = torch.load('../SG_data/ccrs_project/test_new_wind/20210901174202_20210901174000.pt')
-# real = torch.load('../SG_data/ccrs_project/test_new_wind/20210901215204_20210901215000.pt')
-# real = torch.load('../SG_data/ccrs_project/test_new_wind/20210102035703_20210102035500.pt')
+
+input_path = '~/scratch/climate-pytorch'
+input_file_pattern = os.path.join(input_path, "*.pt")
+pt_files = glob.glob(input_file_pattern)
+real = [torch.load(f) for f in pt_files]
+# real = torch.load('~/scratch/climate-pytorch/20210102013202_20210102013000.pt')
+# real = torch.load('~/scratch/climate-pytorch/20221030143224_20221030143000.pt')
+# real = torch.load('~/scratch/climate-pytorch/20210101172203_20210101172000.pt')
+# real = torch.load('~/scratch/climate-pytorch/20220223163223_20220223163000.pt')
+# real = torch.load('~/scratch/climate-pytorch/20210901203203_20210901203000.pt')
+# real = torch.load('~/scratch/climate-pytorch/20210901174202_20210901174000.pt')
+# real = torch.load('~/scratch/climate-pytorch/20210901215204_20210901215000.pt')
+# real = torch.load('~/scratch/climate-pytorch/20210102035703_20210102035500.pt')
 
 # 20210710024204_20210710024000.pt
 # 20221009205724_20221009205500.pt
