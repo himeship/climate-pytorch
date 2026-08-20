@@ -33,7 +33,7 @@ START_TIME=$(date +%s)
 echo "PyTorch Job Started at: $(date)"
 
 # Launch PyTorch DDP via torchrun for 4 local GPUs
-time mpirun -np $NNODES -hostfile $PBS_NODEFILE --bind-to numa --map-by numa \
+time mpiexec -np $NNODES -hostfile $PBS_NODEFILE --bind-to numa --map-by numa \
     torchrun --nnodes=$NNODES --nproc_per_node=4 --master_addr=$MASTER_ADDR \
     --master_port=$MASTER_PORT train_traj.py
 
