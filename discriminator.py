@@ -110,61 +110,75 @@ class Spatial_Discriminator(nn.Module):
             
     def forward(self, x: torch.Tensor, dates=None) -> torch.Tensor:
         # shape of x -> (N, T, C, H, W)
-        idxs = torch.randint(low=self.conditioning_steps, high=self.conditioning_steps+self.forecast_steps, size=(self.num_timesteps,)).tolist()
-        reps = []  # list to store representive frames
-        
-        if dates == None:
-            for idx in idxs:
-                rep = x[:, idx, :, :, :]  # shape of rep -> (N, C, H, W) ==default==> (N, 1, 256, 256)
-                rep = self.space2depth(rep)
-                rep = sn.avgpool2d(kernel_size=self.scale_factor, dtype=self.dtype)(rep)  # downsampling
-                for conv_block in self.conv_blocks:
-                    rep = conv_block(rep)   
-                rep = torch.sum(rep, dim=(2, 3))  # shape of x -> (N, C) ==default==> (N, 768)
-                # Convert to float32 for batch norm
-                rep = rep.float()
-                # Apply batch norm manually to avoid inplace operations
-                mean = rep.mean(dim=0, keepdim=True)
-                var = rep.var(dim=0, keepdim=True, unbiased=False)
-                rep = (rep - mean) / torch.sqrt(var + 1e-5)
-                # Continue with the rest of fc_stack
-                rep = self.fc_stack[1:](rep)  # Skip the BatchNorm1d layer
-                rep = rep.to(self.dtype)  # Convert back to original dtype
-                reps.append(rep)
-                
+        idxs = torch.randint(low=self.conditioning_steps, high=self.conditioning_steps + self.forecast_steps, size=(self.num_timesteps,)).tolist()
+        N, _, C, H, W = x.shape
+        T = self.num_timesteps
+    
+        if dates is None:
+            # === Vectorized version for no-date branch ===
+            x_selected = x[:, idxs, :, :, :]  # (N, T, C, H, W)
+            x_flat = x_selected.view(N * T, C, H, W)
+    
+            x_flat = self.space2depth(x_flat)
+            x_flat = sn.avgpool2d(kernel_size=self.scale_factor, dtype=self.dtype)(x_flat)
+    
+            for conv_block in self.conv_blocks:
+                x_flat = conv_block(x_flat)
+    
+            x_flat = x_flat.sum(dim=(2, 3))  # (N*T, C)
+            #x_flat = x_flat.float()
+            mean = x_flat.mean(dim=0, keepdim=True)
+            var = x_flat.var(dim=0, keepdim=True, unbiased=False)
+            x_flat = (x_flat - mean) / torch.sqrt(var + 1e-5)
+            x_out = self.fc_stack[1:](x_flat.to(self.dtype))  # (N*T, fc_dim)
+            x_out = x_out.view(N, T, -1)  # (N, T, fc_dim)
+            out = x_out.mean(dim=1)  # (N, fc_dim)
+            return out
+    
         else:
-            for idx in idxs:
-                increment = torch.zeros(dates.size(0), 5).to(self.device, self.dtype)
-                increment[:, -2] = self.time_delta * idx
-                idx_dates = dates + increment
-                embed = self.time_embed_2d(idx_dates)
-                rep = torch.cat([x[:, idx, :, :, :], embed], dim=1)  # shape of rep -> (N, C, H, W) ==default==> (N, 2, 256, 256)
-                # Convert to float32 for layer norm
-                rep = rep.float()
-                rep = self.LN(rep)  # maintain numerical stability
-                rep = rep.to(self.dtype)  # Convert back to original dtype
-                rep = self.space2depth(rep)
-                rep = sn.avgpool2d(kernel_size=self.scale_factor, dtype=self.dtype)(rep)  # downsampling
-                for conv_block in self.conv_blocks:
-                    rep = conv_block(rep)    
-                rep = torch.sum(rep, dim=(2, 3))  # shape of x -> (N, C) ==default==> (N, 768)
-                # Convert to float32 for batch norm
-                rep = rep.float()
-                # Apply batch norm manually to avoid inplace operations
-                mean = rep.mean(dim=0, keepdim=True)
-                var = rep.var(dim=0, keepdim=True, unbiased=False)
-                rep = (rep - mean) / torch.sqrt(var + 1e-5)
-                # Continue with the rest of fc_stack
-                rep = self.fc_stack[1:](rep)  # Skip the BatchNorm1d layer
-                rep = rep.to(self.dtype)  # Convert back to original dtype
-                rep = torch.cat([rep, self.time_embed_1d(idx_dates)], dim=1)
-                rep = F.sigmoid(self.final_layer(rep))
-                reps.append(rep)
-              
-        x = torch.stack(reps, dim=1)  # shape of x -> (N, T, 1)
-        out = torch.mean(x, dim=1)  # shape of out -> (N, 1)
-        
-        return out
+            # === Vectorized version for with-date branch ===
+            x_selected = x[:, idxs, :, :, :]  # (N, T, C, H, W)
+    
+            # Compute all idx_dates at once
+            increments = torch.zeros(N, T, 5, device=self.device, dtype=self.dtype)
+            increments[:, :, -2] = torch.tensor([self.time_delta * idx for idx in idxs], device=self.device, dtype=self.dtype)
+            idx_dates = dates.unsqueeze(1) + increments  # (N, T, 5)
+    
+            # Time embeddings
+            time_embed_2d = self.time_embed_2d(idx_dates.view(-1, 5))  # (N*T, C=1, H, W)
+    
+            x_flat = x_selected.view(N * T, C, H, W)
+            x_flat = torch.cat([x_flat, time_embed_2d], dim=1)  # (N*T, 2, H, W)
+    
+            # LayerNorm
+            #x_flat = x_flat.float()
+            x_flat = self.LN(x_flat)
+            x_flat = x_flat.to(self.dtype)
+    
+            x_flat = self.space2depth(x_flat)
+            x_flat = sn.avgpool2d(kernel_size=self.scale_factor, dtype=self.dtype)(x_flat)
+    
+            for conv_block in self.conv_blocks:
+                x_flat = conv_block(x_flat)
+    
+            x_flat = x_flat.sum(dim=(2, 3))  # (N*T, C)
+            #x_flat = x_flat.float()
+            mean = x_flat.mean(dim=0, keepdim=True)
+            var = x_flat.var(dim=0, keepdim=True, unbiased=False)
+            x_flat = (x_flat - mean) / torch.sqrt(var + 1e-5)
+    
+            x_flat = self.fc_stack[1:](x_flat.to(self.dtype))  # (N*T, fc_dim)
+    
+            # Time embedding (1D)
+            time_embed_1d = self.time_embed_1d(idx_dates.view(-1, 5))  # (N*T, C)
+            rep = torch.cat([x_flat, time_embed_1d], dim=1)  # (N*T, total_dim)
+    
+            rep = F.sigmoid(self.final_layer(rep))  # (N*T, 1)
+            rep = rep.view(N, T, 1)
+            out = rep.mean(dim=1)  # (N, 1)
+    
+            return out
+
         
                   
 # In[2]: Temporal Discriminator            
@@ -222,7 +236,7 @@ class Temporal_Discriminator(nn.Module):
         self.in_channels_conv = in_channels * s2d_factor**2
         self.channels = [self.in_channels_conv] + [self.in_channels_conv*amp_0*(amp_1**i) for i in range(self.num_blocks-1)] + [out_channels]
         # conv, fc layers & time info embedding
-        self.LN = nn.LayerNorm((conditioning_steps+forecast_steps,)+shape, device=self.device, dtype=self.dtype)
+        self.LN = nn.LayerNorm((num_timesteps,)+shape, device=self.device, dtype=self.dtype)
         self.time_embed_2d = TE_Block((t_channels,) + shape, device=self.device, dtype=self.dtype)
         self.space2depth = nn.PixelUnshuffle(downscale_factor=s2d_factor)
         self.conv_blocks_3d = nn.ModuleList(
@@ -242,7 +256,7 @@ class Temporal_Discriminator(nn.Module):
             nn.Tanh(),
         )
         self.time_embed_1d = TE_Block((self.out_channels//96,), device=self.device, dtype=self.dtype)
-        self.final_layer = sn.linear((self.out_channels//96)*2, 1, device=self.device, dtype=self.dtype)
+        self.final_layer = sn.linear((self.out_channels//96), 1, device=self.device, dtype=self.dtype)
 
     #========================================================================================= Fluent Interface =========================================================================================#
     def to(self, device: str | int | torch.device | type | torch.dtype = None, dtype: type | torch.dtype = None):
@@ -268,12 +282,14 @@ class Temporal_Discriminator(nn.Module):
             
     def forward(self, x: torch.Tensor, dates=None) -> torch.Tensor:
         # shape of x -> (N, T, C, H, W)
+        N, _, C, H, W = x.shape
+        T = self.num_timesteps
         idx_1st = torch.randint(low=0, high=x.size(1)-self.num_timesteps+1, size=(1,))[0]
         idx_end = idx_1st + self.num_timesteps
-        reps = []  # list to store representive frames
+        idxs = torch.arange(idx_1st, idx_end).tolist()
+        x_slice = x[:, idx_1st:idx_end, :, :, :]
         
         if dates == None:
-            x_slice = x[:, idx_1st:idx_end, :, :, :]  # Create a new tensor instead of modifying x
             x_slice = self.space2depth(x_slice)
             x_slice = sn.avgpool3d(kernel_size=(1, self.scale_factor, self.scale_factor), dtype=self.dtype)(x_slice)  # downsampling
             x_slice = einops.rearrange(x_slice, 'n t c h w -> n c t h w')
@@ -281,32 +297,31 @@ class Temporal_Discriminator(nn.Module):
                 x_slice = conv_block(x_slice)   
             x_slice = einops.rearrange(x_slice, 'n c t h w -> n t c h w')
             # seperete conv for each time steps
-            for i in range(x_slice.size(1)):
-                rep = x_slice[:, i, :, :, :]
-                for conv_block in self.conv_blocks_d:
-                    rep = conv_block(rep)
-                rep = torch.sum(rep, dim=(2, 3))  # shape of rep -> (N, C) ==default==> (N, 768)
-                # Convert to float32 for batch norm
-                rep = rep.float()
-                # Apply batch norm manually to avoid inplace operations
-                mean = rep.mean(dim=0, keepdim=True)
-                var = rep.var(dim=0, keepdim=True, unbiased=False)
-                rep = (rep - mean) / torch.sqrt(var + 1e-5)
-                # Continue with the rest of fc_stack
-                rep = self.fc_stack[1:](rep)  # Skip the BatchNorm1d layer
-                rep = rep.to(self.dtype)  # Convert back to original dtype
-                reps.append(rep)
+            N_, T_, C_, H_, W_ = x_slice.size()
+            rep = x_slice.contiguous().view(-1, C_, H_, W_)
+            for conv_block in self.conv_blocks_d:
+                rep = conv_block(rep)
+            rep = torch.sum(rep, dim=(2, 3))  # shape of rep -> (N, C) ==default==> (N, 768)
+            # Convert to float32 for batch norm
+            #rep = rep.float()
+            # Apply batch norm manually to avoid inplace operations
+            mean = rep.mean(dim=0, keepdim=True)
+            var = rep.var(dim=0, keepdim=True, unbiased=False)
+            rep = (rep - mean) / torch.sqrt(var + 1e-5)
+            # Continue with the rest of fc_stack
+            rep = self.fc_stack[1:](rep)  # Skip the BatchNorm1d layer
+            #rep = rep.to(self.dtype)  # Convert back to original dtype
                 
         else:
-            embeds = []
-            for idx in range(x.size(1)):
-                increment = torch.zeros(dates.size(0), 5).to(self.device, self.dtype)
-                increment[:, -2] = self.time_delta * idx
-                idx_dates = dates + increment
-                embed = self.time_embed_2d(idx_dates)  # embed shape: (N, t_channels, h, w)
-                embeds.append(embed)  # embed shape (N, t_channels, h, w)
-            embeds = torch.stack(embeds, dim=1) # embeds shape : (N, t_steps, t_channels, h, w) ==default==> (N, 22, 1, 256, 256)
-            x_cat = torch.cat([x, embeds], dim=2)  # Create a new tensor instead of modifying x
+            # Compute all idx_dates at once
+            increments = torch.zeros(N, T, 5, device=self.device, dtype=self.dtype)
+            increments[:, :, -2] = torch.tensor([self.time_delta * idx for idx in idxs], device=self.device, dtype=self.dtype)
+            idx_dates = dates.unsqueeze(1) + increments  # (N, T, 5)
+            # Time embeddings
+            time_embed_2d = self.time_embed_2d(idx_dates.view(-1, 5))  # (N*T, C=1, H, W)
+            time_embed_2d = time_embed_2d.view(N, T, 1, H, W) 
+            #embeds = torch.stack(embeds, dim=1) # embeds shape : (N, t_steps, t_channels, h, w) ==default==> (N, 22, 1, 256, 256)
+            x_cat = torch.cat([x_slice, time_embed_2d], dim=2)  # Create a new tensor instead of modifying x
             x_cat = einops.rearrange(x_cat, 'n t c h w -> n c t h w')
             x_cat = self.LN(x_cat)  # maintain numerical stability
             x_cat = einops.rearrange(x_cat, 'n c t h w -> n t c h w')   
@@ -318,28 +333,27 @@ class Temporal_Discriminator(nn.Module):
                 x_slice = conv_block(x_slice)  
             x_slice = einops.rearrange(x_slice, 'n c t h w -> n t c h w')
             # seperete conv for each time steps
-            for i in range(x_slice.size(1)):
-                rep = x_slice[:, i, :, :, :]
-                for conv_block in self.conv_blocks_d:
-                    rep = conv_block(rep)
-                rep = torch.sum(rep, dim=(2, 3))  # shape of rep -> (N, C) ==default==> (N, 768)
-                # Convert to float32 for batch norm
-                rep = rep.float()
-                # Apply batch norm manually to avoid inplace operations
-                mean = rep.mean(dim=0, keepdim=True)
-                var = rep.var(dim=0, keepdim=True, unbiased=False)
-                rep = (rep - mean) / torch.sqrt(var + 1e-5)
-                # Continue with the rest of fc_stack
-                rep = self.fc_stack[1:](rep)  # Skip the BatchNorm1d layer
-                rep = rep.to(self.dtype)  # Convert back to original dtype
-                rep = torch.cat([rep, self.time_embed_1d(idx_dates)], dim=1)
-                rep = F.sigmoid(self.final_layer(rep))
-                reps.append(rep)
+            N_, T_, C_, H_, W_ = x_slice.size()
+            rep = x_slice.contiguous().view(-1, C_, H_, W_)
+            for conv_block in self.conv_blocks_d:
+                rep = conv_block(rep)
+            rep = torch.sum(rep, dim=(2, 3))  # shape of rep -> (N, C) ==default==> (N, 768)
+            # Convert to float32 for batch norm
+            #rep = rep.float()
+            # Apply batch norm manually to avoid inplace operations
+            mean = rep.mean(dim=0, keepdim=True)
+            var = rep.var(dim=0, keepdim=True, unbiased=False)
+            rep = (rep - mean) / torch.sqrt(var + 1e-5)
+            # Continue with the rest of fc_stack
+            rep = self.fc_stack[1:](rep)  # Skip the BatchNorm1d layer
+            #rep = rep.to(self.dtype)  # Convert back to original dtype
+            rep = F.sigmoid(self.final_layer(rep))
               
-        x = torch.stack(reps, dim=1)  # shape of x -> (N, T, 1)
-        out = torch.mean(x, dim=1)  # shape of out -> (N, 1)
+        x = rep.view(N, -1)  # shape of x -> (N, T, 1)
+        out = torch.mean(x, dim=1, keepdim=True)  # shape of out -> (N, 1)
         
-        return out    
+        return out   
+
         
         
 # In[3]: Discriminator   
@@ -383,9 +397,7 @@ class Discriminator(nn.Module):
         
     def forward(self, x: torch.Tensor, dates=None) -> torch.Tensor:
         #dates = [dt.datetime.fromtimestamp(date) for date in dates.tolist()] if isinstance(dates, torch.Tensor) else dates  # convert dates -> list if dates is torch.Tensor
-        spatial_loss = self.spatial_discriminator(x, dates)
-        temporal_loss = self.temporal_discriminator(x, dates)
-        return torch.cat([spatial_loss, temporal_loss], dim=1)
+        return torch.cat([self.spatial_discriminator(x, dates), self.temporal_discriminator(x, dates)], dim=1)
         
             
 # In [*]: Fluent Interface for Dtype Conversion
@@ -407,8 +419,4 @@ for name, dtype in dtype_name_convention:
     Discriminator.create_dtype_convert(name, dtype)
     Spatial_Discriminator.create_dtype_convert(name, dtype)
     Temporal_Discriminator.create_dtype_convert(name, dtype)
-    
-    
-    
-    
     

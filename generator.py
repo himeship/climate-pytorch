@@ -181,9 +181,9 @@ class Latent_stack(nn.Module):
         self.out_channels = out_channels
         self.num_attn_heads = num_attn_heads
         # sampling policy -> N(0,1) normal distritution
-        self.sampling_loc = sampling_loc
-        self.sampling_scale = sampling_scale
-        self.distribution = normal.Normal(loc=sampling_loc, scale=sampling_scale)
+        self.sampling_loc = torch.tensor(sampling_loc, device=self.device, dtype=self.dtype)
+        self.sampling_scale = torch.tensor(sampling_scale, device=self.device, dtype=self.dtype)
+        self.distribution = normal.Normal(loc=self.sampling_loc, scale=self.sampling_scale)
         # time regime embedding def
         self.time_embed = TE_Block((t_channels,) + shape, device=self.device, dtype=self.dtype) 
         # block def
@@ -222,11 +222,11 @@ class Latent_stack(nn.Module):
     def forward(self, x: torch.Tensor, dates=None) -> torch.Tensor:
     
         if dates == None:
-            z = self.distribution.sample((x.size(0), self.in_channels) + self.shape).to(self.device, dtype=self.dtype)  # z shape: (N, C, H, W) ==default==> (N, 8, 8, 8)
+            z = self.distribution.sample((x.size(0), self.in_channels) + self.shape)#.to(self.device, dtype=self.dtype)  # z shape: (N, C, H, W) ==default==> (N, 8, 8, 8)
             out = self._stack(z)
         
         else:
-            z = self.distribution.sample((x.size(0), self.in_channels-self.t_channels) + self.shape).to(self.device, dtype=self.dtype)
+            z = self.distribution.sample((x.size(0), self.in_channels-self.t_channels) + self.shape)#.to(self.device, dtype=self.dtype)
             embed = self.time_embed(dates)
             z = torch.cat([z, embed], dim=1)
             #z = nn.LayerNorm(z.shape[-2:], device=self.device, dtype=self.dtype)(z)
@@ -234,7 +234,7 @@ class Latent_stack(nn.Module):
             out = self._stack(z)
         
         return out  # shape: (N, C, H, W) ==default==> (N, 768, 8, 8)
-                           
+
                     
 # In [4]: Sampler
 
@@ -312,7 +312,6 @@ class Sampler(nn.Module):
         self._out_block = nn.Sequential(
             nn.BatchNorm2d(self.channels[-3], device=self.device, dtype=self.dtype),  # result in no bias
             sn.conv2d(self.channels[-3], self.channels[-2], kernel_size=kernel_size, padding=padding, bias=True, device=self.device, dtype=self.dtype),
-            nn.ReLU(inplace=False),
         )
         
     #=============================================================================== Fluent Interface ==============================================================================#
@@ -351,6 +350,7 @@ class Sampler(nn.Module):
             new_states.append(state)
             
         x = self._out_block(x)
+        x = F.relu(x, inplace=False)
         out = self.depth2space(x).unsqueeze(1)  # shape: (N, C, H, W) -> (N, 1[T], C, H, W)
         
         # [new_states] channels is descending (e.g., 384 -> 192 -> 96 -> 48)
@@ -522,15 +522,22 @@ class Generator(nn.Module):
         if wind == None:
             hidden_states = self.conditioning_stack(x)  # retreive sampler initial states from conditioning stack
         else:      
-            hidden_wind_seq = torch.stack([self.wind_stack(wind[:, t]) for t in range(self.cond_steps)], dim=1)
-            hidden_states = self.conditioning_stack(torch.cat([x, hidden_wind_seq], dim=-3))
+            #hidden_wind_seq = torch.stack([self.wind_stack(wind[:, t]) for t in range(self.cond_steps)], dim=1)
+            #hidden_states = self.conditioning_stack(torch.cat([x, hidden_wind_seq], dim=-3))
+            N, T, Cw, Dw, Hw, Ww = wind.shape
+            # fold time into batch
+            wind_flat = wind.reshape(N*T, Cw, Dw, Hw, Ww)
+            # one big pass through wind_stack
+            hw_flat = self.wind_stack(wind_flat)            # (N*T, Cout, Hout, Wout)
+            # unfold back into sequence
+            hidden_wind_seq = hw_flat.reshape(N, T, *hw_flat.shape[1:])  
+            # combine with x and run conditioning_stack
+            hidden_states   = self.conditioning_stack(torch.cat([x, hidden_wind_seq], dim=-3))
         
-        if dates == None:
-        
-            for i in range(self.cond_steps, self.cond_steps+self.fore_steps):
-                z = self.latent_stack(x)
-                out, new_states = self.sampler(z, hidden_states)
-                hidden_states = new_states  # update hidden states for sampler
+        if dates == None:    
+            z = self.latent_stack(x)
+            for _ in range(self.fore_steps):
+                out, hidden_states = self.sampler(z, hidden_states)
                 forecasts.append(out)
         
         else:

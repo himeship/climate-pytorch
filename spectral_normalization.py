@@ -35,7 +35,7 @@ class linear(nn.Module):
             ),
             eps=self.eps,
         )
-        
+
     def forward(self, x) -> torch.Tensor:
         return self.layer(x)
         
