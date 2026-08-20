@@ -91,15 +91,15 @@ temporal_disc = Temporal_Discriminator(in_channels=2, conditioning_steps=cond_st
 disc = Discriminator(spatial_disc, temporal_disc).to(device, dtype)
 print('Disc: {}'.format(disc.dtype), flush=True)
 
-Load_path = 'traj_model_state_dict'
-Save_path = 'traj_model_state_dict'
+Load_path = '/home/users/astar/ares/deshp/scratch/climate-pytorch/traj_model_state_dict'
+Save_path = '/home/users/astar/ares/deshp/scratch/climate-pytorch/traj_model_state_dict'
 
 
 # In [3]: Parallellism
 
 
 # define dataset for training
-dataset = RadarRainrateDataset(root_dir='/home/users/astar/ares/deshp/scratch/climate-pytorch', transform=TRANSFORM)
+dataset = RadarRainrateDataset(root_dir='/home/users/astar/ares/deshp/scratch/climate-pytorch/data', transform=TRANSFORM)
 
 # ensure differemt
 #shared_seed = 42
