@@ -87,7 +87,7 @@ Save_path = 'SEA_120km_model_state_dict_2'
 
 
 # define dataset for training
-dataset = RadarRainrateDataset(root_dir='../SG_data/train_SEA_120km/', transform=TRANSFORM)
+dataset = RadarRainrateDataset(root_dir='~/scratch/climate-pytorch/', transform=TRANSFORM)
 
 # ensure differemt
 #shared_seed = 42
@@ -112,7 +112,7 @@ loader = DataLoader(
 disc = disc.to(device, dtype)
 disc = DDP(disc, 
            device_ids=[local_rank], 
-           find_unused_parameters=False,
+           find_unused_parameters=True,
            broadcast_buffers=False,
            static_graph=True,
            gradient_as_bucket_view=True)  # Enable gradient as bucket view for better memory efficiency
@@ -120,7 +120,7 @@ disc = DDP(disc,
 gen = gen.to(device, dtype)
 gen = DDP(gen, 
           device_ids=[local_rank], 
-          find_unused_parameters=False,
+          find_unused_parameters=True,
           broadcast_buffers=False,
           static_graph=True,
           gradient_as_bucket_view=True)  # Enable gradient as bucket view for better memory efficiency
