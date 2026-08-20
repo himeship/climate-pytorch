@@ -12,6 +12,7 @@ cd $PBS_O_WORKDIR
 
 # Load modules
 module purge
+module load PrgEnv-cray
 module load cuda/12.8.1
 module load python/3.10.9
 
