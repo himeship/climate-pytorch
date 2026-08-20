@@ -32,8 +32,10 @@ export OMP_NUM_THREADS=1
 START_TIME=$(date +%s)
 echo "PyTorch Job Started at: $(date)"
 
+export MPICH_CPU_BINDING=numa
+
 # Launch PyTorch DDP via torchrun for 4 local GPUs
-time mpiexec -np $NNODES -hostfile $PBS_NODEFILE --bind-to numa --map-by numa \
+time mpiexec -np $NNODES -hostfile $PBS_NODEFILE \
     torchrun --nnodes=$NNODES --nproc_per_node=4 --master_addr=$MASTER_ADDR \
     --master_port=$MASTER_PORT train_traj.py
 
