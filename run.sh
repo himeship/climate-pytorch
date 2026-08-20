@@ -2,8 +2,8 @@
 #PBS -N pytorch_ddp_job
 #PBS -q normal
 #PBS -P 90000001
-#PBS -l select=1:ncpus=128:ngpus=4:mem=440G
-#PBS -l walltime=12:00:00
+#PBS -l select=2:ncpus=128:ngpus=4:mem=440G
+#PBS -l walltime=3:00:00
 #PBS -j oe
 #PBS -o ddp_output.log
 
@@ -14,20 +14,28 @@ cd $PBS_O_WORKDIR
 module purge
 module load cuda/12.8.1
 module load python/3.10.9
+module load cray-mpich
+
+export MPICH_GPU_SUPPORT_ENABLED=1
 
 # Load Python env
 source /home/users/astar/ares/deshp/optimization/pytorch-env/bin/activate
 
 # Setup Master Address and Port for DDP
-export MASTER_ADDR=$(hostname)
-export MASTER_PORT=29500
+NODES=($(cat $PBS_NODEFILE | sort -u))
+NNODES=${#NODES[@]}
+MASTER_ADDR=${NODES[0]}
+MASTER_PORT=29500
+
 export OMP_NUM_THREADS=1
 
 START_TIME=$(date +%s)
 echo "PyTorch Job Started at: $(date)"
 
 # Launch PyTorch DDP via torchrun for 4 local GPUs
-time torchrun --nproc_per_node=4 --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT train_traj.py
+time mpirun -np $NNODES -hostfile $PBS_NODEFILE --bind-to numa --map-by numa \
+    torchrun --nnodes=$NNODES --nproc_per_node=4 --master_addr=$MASTER_ADDR \
+    --master_port=$MASTER_PORT train_traj.py
 
 END_TIME=$(date +%s)
 echo "PyTorch Job Ended at: $(date)"
