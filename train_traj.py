@@ -99,7 +99,7 @@ Save_path = 'traj_model_state_dict'
 
 
 # define dataset for training
-dataset = RadarRainrateDataset(root_dir='../SG_data/train_SEA_120km/', transform=TRANSFORM)
+dataset = RadarRainrateDataset(root_dir='~/scratch/climate-pytorch', transform=TRANSFORM)
 
 # ensure differemt
 #shared_seed = 42
