@@ -14,7 +14,6 @@ cd $PBS_O_WORKDIR
 module purge
 module load cuda/12.8.1
 module load python/3.10.9
-module load cray-mpich
 
 export MPICH_GPU_SUPPORT_ENABLED=1
 
