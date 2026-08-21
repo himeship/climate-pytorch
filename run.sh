@@ -31,15 +31,11 @@ export OMP_NUM_THREADS=1
 export MPICH_GPU_SUPPORT_ENABLED=1
 export MPICH_CPU_BINDING=numa
 
-export NCCL_DEBUG=INFO
-export GLOO_SOCKET_IFNAME=hsq0,eth0
-export NCCL_SOCKET_IFNAME=hsq0,eth0
-
 START_TIME=$(date +%s)
 echo "PyTorch Job Started at: $(date)"
 
 # Launch PyTorch DDP via torchrun for 4 local GPUs
-time mpiexec -np $NNODES -npernode 1 -hostfile $PBS_NODEFILE \
+time mpiexec -np 2 -hostfile $PBS_NODEFILE \
     torchrun --nnodes=$NNODES --nproc_per_node=4 --rdzv_id=$PBS_JOBID \
     --rdzv_backend=c10d --rdzv_endpoint=$MASTER_ADDR:$MASTER_PORT train_traj.py
 
