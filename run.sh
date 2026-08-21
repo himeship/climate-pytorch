@@ -35,9 +35,9 @@ echo "PyTorch Job Started at: $(date)"
 export MPICH_CPU_BINDING=numa
 
 # Launch PyTorch DDP via torchrun for 4 local GPUs
-time mpiexec -np $NNODES -hostfile $PBS_NODEFILE \
-    torchrun --nnodes=$NNODES --nproc_per_node=4 --master_addr=$MASTER_ADDR \
-    --master_port=$MASTER_PORT train_traj.py
+time mpiexec -np $NNODES -npernode 1 -hostfile $PBS_NODEFILE \
+    torchrun --nnodes=$NNODES --nproc_per_node=4 --rdzv_id=$PBS_JOBID \
+    --rdzv_backend=c10d --rdzv_endpoint=$MASTER_ADDR:$MASTER_PORT train_traj.py
 
 END_TIME=$(date +%s)
 echo "PyTorch Job Ended at: $(date)"
