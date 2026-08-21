@@ -28,11 +28,11 @@ MASTER_ADDR=${NODES[0]}
 MASTER_PORT=29500
 
 export OMP_NUM_THREADS=1
+export MPICH_GPU_SUPPORT_ENABLED=1
+export MPICH_CPU_BINDING=numa
 
 START_TIME=$(date +%s)
 echo "PyTorch Job Started at: $(date)"
-
-export MPICH_CPU_BINDING=numa
 
 # Launch PyTorch DDP via torchrun for 4 local GPUs
 time mpiexec -np $NNODES -npernode 1 -hostfile $PBS_NODEFILE \
